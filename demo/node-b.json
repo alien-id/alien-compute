@@ -1,0 +1,19 @@
+{
+  "name": "node-b",
+  "gateway": "http://127.0.0.1:9000",
+  "listen": "127.0.0.1:9102",
+  "data_dir": "demo/run/node-b",
+  "llama_bin": "third_party/llama.cpp/build/bin/llama-server",
+  "llama_port": 9202,
+  "gpus": "1,2",
+  "profile": "cuda-consumer",
+  "n_parallel": 2,
+  "nek_rotate": "1h",
+  "model": {
+    "path": "models/gemma-4-26B-A4B-it-Q4_K_M.gguf",
+    "aliases": ["gemma-4-26b-a4b-it"],
+    "ctx_len": 16384,
+    "tip_in_ktok": 3000000,
+    "tip_out_ktok": 15000000
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "node-c",
+  "gateway": "http://15.237.243.199:9000,http://15.237.243.199:9001",
+  "listen": "127.0.0.1:9103",
+  "data_dir": "demo/run/node-c",
+  "llama_bin": "third_party/llama.cpp/build/bin/llama-server",
+  "llama_port": 9203,
+  "gpus": "3",
+  "profile": "cuda-consumer",
+  "n_parallel": 2,
+  "nek_rotate": "1h",
+  "model": {
+    "path": "models/gemma-4-E4B-it-Q4_K_M.gguf",
+    "aliases": [
+      "gemma-4-e4b-it"
+    ],
+    "ctx_len": 16384,
+    "tip_in_ktok": 500000,
+    "tip_out_ktok": 2500000
+  },
+  "public_addr": "http://127.0.0.1:9103"
+}

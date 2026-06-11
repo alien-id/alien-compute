@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alien Fleet — Live Network</title>
+<style>
+  :root {
+    --bg: #060312;
+    --panel: rgba(22,16,44,.62);
+    --panel-border: rgba(255,255,255,.09);
+    --text: #ece9ff;
+    --dim: #8b86a8;
+    --accent: #8b5cf6;
+    --accent2: #22d3ee;
+    --green: #34d399;
+    --amber: #fbbf24;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overflow-x: hidden;
+  }
+  /* static nebula backdrop (no animation: keeps compositing cheap) */
+  .nebula {
+    position: fixed; inset: -20%;
+    background:
+      radial-gradient(40% 35% at 25% 30%, rgba(139,92,246,.16), transparent 60%),
+      radial-gradient(35% 30% at 75% 20%, rgba(34,211,238,.10), transparent 60%),
+      radial-gradient(45% 40% at 60% 80%, rgba(236,72,153,.07), transparent 60%);
+    z-index: 0; pointer-events: none;
+  }
+  #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity:.45; }
+  main { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 40px 28px 80px; }
+
+  header { display: flex; align-items: baseline; gap: 18px; flex-wrap: wrap; margin-bottom: 8px; }
+  .logo {
+    font-size: 30px; font-weight: 800; letter-spacing: -.5px;
+    background: linear-gradient(90deg, #c4b5fd, #22d3ee 70%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .logo span { font-weight: 300; }
+  .tagline { color: var(--dim); font-size: 14px; }
+  .live {
+    margin-left: auto; display: flex; align-items: center; gap: 8px;
+    font-size: 12px; letter-spacing: .18em; color: var(--green); font-weight: 600;
+  }
+  .pulse { width: 9px; height: 9px; border-radius: 50%; background: var(--green); animation: pulse 1.6s infinite; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(52,211,153,.6); }
+    70% { box-shadow: 0 0 0 9px rgba(52,211,153,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,211,153,0); }
+  }
+  .sub { color: var(--dim); font-size: 13.5px; margin-bottom: 34px; line-height: 1.6; max-width: 860px; }
+  .sub b { color: #c4b5fd; font-weight: 600; }
+
+  .heroes { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 36px; }
+  .hero {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 16px;
+    padding: 20px 22px;
+    transition: border-color .3s;
+  }
+  .hero:hover { border-color: rgba(139,92,246,.45); }
+  .hero .k { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+  .hero .v { font-size: 30px; font-weight: 750; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+  .hero .u { font-size: 13px; color: var(--dim); font-weight: 400; margin-left: 4px; }
+  .hero.glow .v { background: linear-gradient(90deg,#a78bfa,#22d3ee); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  h2 { font-size: 13px; letter-spacing: .2em; text-transform: uppercase; color: var(--dim); margin: 38px 0 16px; font-weight: 600; }
+
+  .models { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 16px; }
+  .model {
+    background: var(--panel); border: 1px solid var(--panel-border); border-radius: 18px;
+    padding: 22px; position: relative; overflow: hidden;
+  }
+  .model::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    opacity: .65;
+  }
+  .model .name { font-family: var(--mono); font-size: 15.5px; font-weight: 700; color: #d6ccff; }
+  .model .aliases { margin: 6px 0 14px; }
+  .chip {
+    display: inline-block; font-family: var(--mono); font-size: 11px; padding: 3px 9px;
+    border-radius: 99px; border: 1px solid rgba(139,92,246,.4); color: #c4b5fd; margin-right: 6px;
+  }
+  .meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; font-size: 13px; }
+  .meta .k { color: var(--dim); }
+  .meta .v { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12.5px; }
+  .barwrap { margin-top: 16px; }
+  .barlabel { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--dim); margin-bottom: 6px; }
+  .bar { height: 6px; border-radius: 99px; background: rgba(255,255,255,.07); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), var(--accent2)); transition: width .8s cubic-bezier(.4,0,.2,1); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  thead th { text-align: left; font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--dim); font-weight: 600; padding: 0 14px 10px; }
+  tbody tr { background: var(--panel); }
+  tbody tr td:first-child { border-radius: 12px 0 0 12px; }
+  tbody tr td:last-child { border-radius: 0 12px 12px 0; }
+  td { padding: 13px 14px; border-top: 6px solid var(--bg); font-variant-numeric: tabular-nums; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+  .ok { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,.8); }
+  .warn { background: var(--amber); }
+  .gpu-badge {
+    font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 6px;
+    background: rgba(34,211,238,.12); border: 1px solid rgba(34,211,238,.35); color: #67e8f9;
+  }
+  .feed { font-family: var(--mono); font-size: 12.5px; line-height: 2.05; color: #b9b2d8; }
+  .feed .new { animation: flash 1.8s ease-out; }
+  @keyframes flash { from { background: rgba(139,92,246,.25); } to { background: transparent; } }
+  .feed .amt { color: var(--green); }
+  .feed .burn { color: #f87171; }
+  .feed .t { color: #514b6e; }
+  footer { margin-top: 56px; color: #514b6e; font-size: 12px; line-height: 1.8; }
+  footer a { color: #8b86a8; }
+  .cols2 { display: grid; grid-template-columns: 3fr 2fr; gap: 16px; align-items: start; }
+  @media (max-width: 900px) { .cols2 { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 18px; padding: 20px 22px; }
+  @media (prefers-reduced-motion: reduce) {
+    .pulse, .feed .new { animation: none; }
+    .bar i { transition: none; }
+    #stars { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="nebula"></div>
+<canvas id="stars"></canvas>
+<main>
+  <header>
+    <div class="logo">ALIEN<span> FLEET</span></div>
+    <div class="tagline">a confidential, self-verifying market for distributed LLM inference</div>
+    <div class="live"><span class="pulse"></span>LIVE TESTNET</div>
+  </header>
+  <div class="sub">
+    Every request below is <b>end-to-end encrypted</b> to a GPU node — gateways relay ciphertext only.
+    Every paid token is accounted for by a <b>signed receipt</b>, countersigned by the client and settled
+    on-chain: base fees <b>burn</b>, providers <b>earn</b>. Performance numbers are measured from receipts,
+    not self-reported.
+  </div>
+
+  <div class="heroes">
+    <div class="hero glow"><div class="k">GPU nodes online</div><div class="v" id="h-nodes">—</div></div>
+    <div class="hero glow"><div class="k">Network throughput</div><div class="v"><span id="h-tps">—</span><span class="u">tok/s</span></div></div>
+    <div class="hero"><div class="k">Models served</div><div class="v" id="h-models">—</div></div>
+    <div class="hero"><div class="k">Tokens served</div><div class="v" id="h-tokens">—</div></div>
+    <div class="hero"><div class="k">Receipts settled</div><div class="v" id="h-receipts">—</div></div>
+    <div class="hero"><div class="k">FLEET burned</div><div class="v" id="h-burned">—</div></div>
+    <div class="hero"><div class="k">Provider earnings</div><div class="v" id="h-earned">—</div></div>
+  </div>
+
+  <h2>Models on the network</h2>
+  <div class="models" id="models"></div>
+
+  <div class="cols2">
+    <div>
+      <h2>Compute providers</h2>
+      <table>
+        <thead><tr><th>Node</th><th>Model</th><th>GPUs</th><th>Slots</th><th>tok/s</th><th>TTFT</th><th>Served</th><th>Earned</th></tr></thead>
+        <tbody id="nodes"></tbody>
+      </table>
+    </div>
+    <div>
+      <h2>Settlement feed</h2>
+      <div class="panel feed" id="feed"><span class="t" id="feed-empty">waiting for receipts…</span></div>
+      <h2>Gateways</h2>
+      <div class="panel feed" id="gws"></div>
+    </div>
+  </div>
+
+  <footer>
+    Permissionless join · HPKE end-to-end encryption (RFC 9180) · voucher payment channels ·
+    dual-signed receipts · identity-gated faucet via <a href="https://alien.org">Alien Agent ID</a><br>
+    Alien Fleet Phase-0 testnet — compute unit FLEET (testnet). OpenAI-compatible access via the fleet-proxy client.
+  </footer>
+</main>
+
+<script>
+// starfield — throttled to ~20fps; nothing translucent sits above it that
+// needs re-blurring, so repaints stay cheap.
+const cv = document.getElementById('stars'), cx = cv.getContext('2d');
+let stars = [];
+function sizeCanvas() {
+  cv.width = innerWidth; cv.height = innerHeight;
+  stars = Array.from({length: Math.min(120, innerWidth/10)}, () => ({
+    x: Math.random()*cv.width, y: Math.random()*cv.height,
+    r: Math.random()*1.2+.2, p: Math.random()*Math.PI*2, s: Math.random()*.004+.002
+  }));
+}
+sizeCanvas(); addEventListener('resize', sizeCanvas);
+let lastFrame = 0;
+(function tick(t) {
+  if (t - lastFrame > 50) {
+    lastFrame = t;
+    cx.clearRect(0,0,cv.width,cv.height);
+    for (const st of stars) {
+      const a = .25 + .55*Math.abs(Math.sin(st.p + t*st.s));
+      cx.fillStyle = `rgba(220,215,255,${a})`;
+      cx.beginPath(); cx.arc(st.x, st.y, st.r, 0, 7); cx.fill();
+    }
+  }
+  requestAnimationFrame(tick);
+})(0);
+
+const $ = id => document.getElementById(id);
+const fleet = n => (n/1e9).toLocaleString(undefined, {maximumFractionDigits: 3});
+const big = n => n >= 1e6 ? (n/1e6).toFixed(2)+'M' : n >= 1e3 ? (n/1e3).toFixed(1)+'k' : String(n);
+const params = n => n >= 1e9 ? (n/1e9).toFixed(1)+'B' : (n/1e6).toFixed(0)+'M';
+
+// --- incremental DOM helpers: write only when the value actually changed ---
+function setText(el, v) {
+  if (el.textContent !== String(v)) el.textContent = v;
+}
+const setTextId = (id, v) => setText($(id), v);
+
+// keyed child reconciler: creates a node per key once, updates it in place,
+// removes vanished keys. No innerHTML rebuilds => no flicker.
+function reconcile(container, items, keyOf, create, update) {
+  const have = new Map();
+  for (const el of container.children) if (el.dataset.key) have.set(el.dataset.key, el);
+  const seen = new Set();
+  let prev = null;
+  for (const item of items) {
+    const key = keyOf(item);
+    seen.add(key);
+    let el = have.get(key);
+    if (!el) {
+      el = create(item);
+      el.dataset.key = key;
+      if (prev && prev.nextSibling) container.insertBefore(el, prev.nextSibling);
+      else if (prev) container.appendChild(el);
+      else container.prepend(el);
+    }
+    update(el, item);
+    prev = el;
+  }
+  for (const [key, el] of have) if (!seen.has(key)) el.remove();
+}
+
+function modelCard(m) {
+  const el = document.createElement('div');
+  el.className = 'model';
+  el.innerHTML = `
+    <div class="name"></div>
+    <div class="aliases"></div>
+    <div class="meta">
+      <span class="k">Parameters</span><span class="v" data-f="params"></span>
+      <span class="k">Quantization</span><span class="v" data-f="quant"></span>
+      <span class="k">Context (train)</span><span class="v" data-f="ctx"></span>
+      <span class="k">Artifact</span><span class="v" data-f="size"></span>
+      <span class="k">Throughput</span><span class="v" data-f="tps"></span>
+      <span class="k">Bundle</span><span class="v" data-f="bundle"></span>
+    </div>
+    <div class="barwrap">
+      <div class="barlabel"><span data-f="cap"></span><span data-f="nodes"></span></div>
+      <div class="bar"><i style="width:3%"></i></div>
+    </div>`;
+  return el;
+}
+function modelUpdate(el, m) {
+  setText(el.querySelector('.name'), m.name);
+  const aliases = (m.aliases || []).map(a => `<span class="chip">${a}</span>`).join('');
+  const al = el.querySelector('.aliases');
+  if (al.dataset.v !== aliases) { al.innerHTML = aliases; al.dataset.v = aliases; }
+  const q = f => el.querySelector(`[data-f="${f}"]`);
+  setText(q('params'), m.meta.n_params ? params(m.meta.n_params) : '—');
+  setText(q('quant'), m.meta.quant || '—');
+  setText(q('ctx'), m.meta.n_ctx_train ? big(m.meta.n_ctx_train) : '—');
+  setText(q('size'), m.meta.size_bytes ? (m.meta.size_bytes/1e9).toFixed(1)+' GB' : '—');
+  setText(q('tps'), Math.round(m.measured_tps_total) + ' tok/s');
+  setText(q('bundle'), m.bundle_hash.slice(0,12)+'…');
+  q('bundle').title = m.bundle_hash;
+  const used = m.total_slots - m.free_slots;
+  setText(q('cap'), `capacity ${used}/${m.total_slots} slots`);
+  setText(q('nodes'), `${m.node_count} node${m.node_count>1?'s':''}`);
+  const pct = m.total_slots ? Math.round(100*used/m.total_slots) : 0;
+  const bar = el.querySelector('.bar i');
+  const w = Math.max(pct,3)+'%';
+  if (bar.style.width !== w) bar.style.width = w;
+}
+
+function nodeRow() {
+  const el = document.createElement('tr');
+  el.innerHTML = `
+    <td class="mono"><span class="dot"></span><span data-f="nik"></span></td>
+    <td class="mono" data-f="model"></td>
+    <td><span class="gpu-badge" data-f="gpus"></span></td>
+    <td data-f="slots"></td><td data-f="tps"></td><td data-f="ttft"></td>
+    <td data-f="served"></td>
+    <td class="mono"><span data-f="earned"></span> <span style="color:var(--dim)">FLT</span></td>`;
+  return el;
+}
+function nodeUpdate(el, r) {
+  const q = f => el.querySelector(`[data-f="${f}"]`);
+  const dot = el.querySelector('.dot');
+  const cls = 'dot ' + (r.n.accepting ? 'ok' : 'warn');
+  if (dot.className !== cls) dot.className = cls;
+  setText(q('nik'), r.n.nik.slice(0,10)+'…');
+  setText(q('model'), r.model.replace('-Q4_K_M',''));
+  setText(q('gpus'), `${(r.n.gpus||'').split(',').length}× GPU [${r.n.gpus}]`);
+  setText(q('slots'), `${r.n.slots - r.n.free_slots}/${r.n.slots}`);
+  setText(q('tps'), r.n.measured_tps ? Math.round(r.n.measured_tps) : '—');
+  setText(q('ttft'), r.n.measured_ttft_ms ? Math.round(r.n.measured_ttft_ms)+'ms' : '—');
+  setText(q('served'), r.n.served_receipts);
+  setText(q('earned'), r.p.tips_earned ? r.p.tips_earned.replace(' FLEET','') : '0');
+}
+
+const renderedReceipts = new Set();
+function feedReceipt(r) {
+  const t = new Date(r.settled_at*1000).toLocaleTimeString();
+  const div = document.createElement('div');
+  div.className = 'new';
+  div.innerHTML = `<span class="t">${t}</span> ${r.in_tokens}+${r.out_tokens} tok → ` +
+    `<span class="amt">+${fleet(r.tip)} tip</span> <span class="burn">−${fleet(r.burned)} burn</span> ` +
+    `<span class="t">${r.dual_signed ? '✓✓ dual-signed' : '✓ signed'}</span>`;
+  return div;
+}
+
+let lastGws = '';
+
+async function refresh() {
+  try {
+    const [cap, stats, peers] = await Promise.all([
+      fetch('/v1/registry/capacity').then(r => r.json()),
+      fetch('/v1/ledger/stats').then(r => r.json()),
+      fetch('/v1/net/peers').then(r => r.json()),
+    ]);
+
+    // heroes
+    const nodeSet = new Map();
+    let tpsTotal = 0;
+    const models = cap.models || [];
+    for (const m of models) {
+      for (const n of m.nodes) { nodeSet.set(n.nik, n); if (n.accepting) tpsTotal += n.measured_tps; }
+    }
+    let tokens = 0, earnedNano = 0;
+    for (const k in (stats.providers || {})) {
+      const p = stats.providers[k];
+      tokens += p.in_tokens + p.out_tokens;
+      earnedNano += p.tips_earned_nano;
+    }
+    setTextId('h-nodes', nodeSet.size);
+    setTextId('h-tps', Math.round(tpsTotal));
+    setTextId('h-models', models.length);
+    setTextId('h-tokens', big(tokens));
+    setTextId('h-receipts', stats.receipts);
+    setTextId('h-burned', fleet(stats.burned_nano));
+    setTextId('h-earned', fleet(earnedNano));
+
+    // model cards (keyed by bundle hash, updated in place)
+    reconcile($('models'), models, m => m.bundle_hash, modelCard, modelUpdate);
+
+    // provider rows (keyed by nik+bundle)
+    const rows = [];
+    for (const m of models) {
+      for (const n of m.nodes) {
+        rows.push({ key: n.nik + m.bundle_hash, n, model: m.name, p: (stats.providers || {})[n.nik] || {} });
+      }
+    }
+    reconcile($('nodes'), rows, r => r.key, nodeRow, nodeUpdate);
+
+    // settlement feed: prepend only NEW receipts, never rebuild
+    const feed = $('feed');
+    for (const r of (stats.recent_receipts || [])) {
+      if (renderedReceipts.has(r.receipt_hash)) continue;
+      renderedReceipts.add(r.receipt_hash);
+      const empty = $('feed-empty');
+      if (empty) empty.remove();
+      feed.prepend(feedReceipt(r));
+    }
+    while (feed.children.length > 12) feed.lastChild.remove();
+
+    // gateways: rebuild only when the set changes
+    const gwHtml = (peers.peers || []).map(p =>
+      `<div><span class="dot ok"></span>${p.name} <span class="t">${p.url}</span></div>`).join('');
+    if (gwHtml !== lastGws) { $('gws').innerHTML = gwHtml; lastGws = gwHtml; }
+  } catch (e) { /* transient */ }
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

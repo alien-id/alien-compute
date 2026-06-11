@@ -1,0 +1,18 @@
+# build artifacts
+/bin/
+*.exe
+
+# inference backend (built from source — see docs/BUILD.md)
+/third_party/
+
+# model artifacts (downloaded — see `make models`)
+/models/
+
+# runtime state, logs, keys
+/demo/run/
+*.log
+*.gguf
+*.gguf.sha256
+nohup.out
+*.seed
+ledger.json
