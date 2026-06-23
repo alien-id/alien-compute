@@ -11,22 +11,17 @@ The Fleet testnet is live with its control plane on AWS:
 You only need **one** entrypoint URL: the client discovers all gateways via
 peer exchange (`/v1/net/peers`), races pings, and fails over automatically.
 
-## 1. Get the `fleet-proxy` binary
+## 1. Build the `fleet-proxy` binary
 
-Pick the build for your OS from the AWS node (same key as for SSH):
+Build it from source (requires Go 1.25+):
 
 ```bash
-# Linux x86_64
-scp -i ~/.ssh/virial-aws.pem ec2-user@15.237.243.199:fleet/dist/fleet-proxy-linux-amd64 ./fleet-proxy
-# macOS (Apple Silicon)
-scp -i ~/.ssh/virial-aws.pem ec2-user@15.237.243.199:fleet/dist/fleet-proxy-darwin-arm64 ./fleet-proxy
-# Windows
-scp -i .ssh/virial-aws.pem ec2-user@15.237.243.199:fleet/dist/fleet-proxy-windows-amd64.exe fleet-proxy.exe
-
-chmod +x ./fleet-proxy   # linux/macos
+git clone https://github.com/alien-id/alien-compute.git
+cd alien-compute
+go build -o fleet-proxy ./cmd/fleet-proxy
 ```
 
-(Or build from source: `go build ./cmd/fleet-proxy` in the fleet repo.)
+This produces a `fleet-proxy` binary in the current directory.
 
 ## 2. Start the local proxy
 
