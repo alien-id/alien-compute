@@ -20,14 +20,15 @@ import (
 )
 
 type Config struct {
-	Bin       string   `json:"bin"`
-	ModelPath string   `json:"model_path"`
-	ModelName string   `json:"model_name"`
-	Port      int      `json:"port"`
-	CtxLen    int      `json:"ctx_len"`
-	GPUs      string   `json:"gpus"` // CUDA_VISIBLE_DEVICES value, e.g. "0,1,2,3"
-	ExtraArgs []string `json:"extra_args"`
-	LogPath   string   `json:"log_path"`
+	Bin            string   `json:"bin"`
+	ModelPath      string   `json:"model_path"`
+	ModelName      string   `json:"model_name"`
+	Port           int      `json:"port"`
+	CtxLen         int      `json:"ctx_len"`
+	GPUs           string   `json:"gpus"` // CUDA_VISIBLE_DEVICES value, e.g. "0,1,2,3"
+	ExtraArgs      []string `json:"extra_args"`
+	LogPath        string   `json:"log_path"`
+	StartupTimeout time.Duration
 }
 
 type Server struct {
@@ -82,7 +83,11 @@ func (s *Server) Start() error {
 	}
 	s.cmd = cmd
 
-	deadline := time.Now().Add(20 * time.Minute)
+	startupTimeout := s.cfg.StartupTimeout
+	if startupTimeout == 0 {
+		startupTimeout = 20 * time.Minute
+	}
+	deadline := time.Now().Add(startupTimeout)
 	cli := &http.Client{Timeout: 2 * time.Second}
 	for time.Now().Before(deadline) {
 		if s.cmd.ProcessState != nil {
@@ -97,7 +102,7 @@ func (s *Server) Start() error {
 		}
 		time.Sleep(time.Second)
 	}
-	return fmt.Errorf("vllm not healthy after 20m (see %s)", s.cfg.LogPath)
+	return fmt.Errorf("vllm not healthy after %s (see %s)", startupTimeout, s.cfg.LogPath)
 }
 
 func (s *Server) Stop() {

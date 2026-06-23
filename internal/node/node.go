@@ -36,23 +36,24 @@ type ModelConfig struct {
 }
 
 type Config struct {
-	Name       string      `json:"name"`
-	Gateway    string      `json:"gateway"`
-	Listen     string      `json:"listen"`      // node ingress, relayed by the gateway
-	PublicAddr string      `json:"public_addr"` // how the gateway reaches us (default http://<listen>)
-	DataDir    string      `json:"data_dir"`
-	Runtime    string      `json:"runtime"` // "llama" (default) or "vllm"
-	LlamaBin   string      `json:"llama_bin"`
-	LlamaPort  int         `json:"llama_port"`
-	LlamaArgs  []string    `json:"llama_args"`
-	VLLMBin    string      `json:"vllm_bin"`
-	VLLMPort   int         `json:"vllm_port"`
-	VLLMArgs   []string    `json:"vllm_args"`
-	GPUs       string      `json:"gpus"` // CUDA_VISIBLE_DEVICES pinning
-	Profile    string      `json:"profile"`
-	NParallel  int         `json:"n_parallel"`
-	Model      ModelConfig `json:"model"`
-	NEKRotate  string      `json:"nek_rotate"` // e.g. "1h"
+	Name        string      `json:"name"`
+	Gateway     string      `json:"gateway"`
+	Listen      string      `json:"listen"`      // node ingress, relayed by the gateway
+	PublicAddr  string      `json:"public_addr"` // how the gateway reaches us (default http://<listen>)
+	DataDir     string      `json:"data_dir"`
+	Runtime     string      `json:"runtime"` // "llama" (default) or "vllm"
+	LlamaBin    string      `json:"llama_bin"`
+	LlamaPort   int         `json:"llama_port"`
+	LlamaArgs   []string    `json:"llama_args"`
+	VLLMBin     string      `json:"vllm_bin"`
+	VLLMPort    int         `json:"vllm_port"`
+	VLLMArgs    []string    `json:"vllm_args"`
+	VLLMStartup string      `json:"vllm_startup_timeout"`
+	GPUs        string      `json:"gpus"` // CUDA_VISIBLE_DEVICES pinning
+	Profile     string      `json:"profile"`
+	NParallel   int         `json:"n_parallel"`
+	Model       ModelConfig `json:"model"`
+	NEKRotate   string      `json:"nek_rotate"` // e.g. "1h"
 }
 
 func LoadConfig(path string) (*Config, error) {
@@ -442,11 +443,20 @@ func (n *Node) Run() error {
 			LogPath:   filepath.Join(n.cfg.DataDir, "llama-server.log"),
 		})
 	case "vllm":
+		var startupTimeout time.Duration
+		if n.cfg.VLLMStartup != "" {
+			var err error
+			startupTimeout, err = time.ParseDuration(n.cfg.VLLMStartup)
+			if err != nil {
+				return fmt.Errorf("bad vllm_startup_timeout %q: %w", n.cfg.VLLMStartup, err)
+			}
+		}
 		n.runtime = vllm.New(vllm.Config{
 			Bin: n.cfg.VLLMBin, ModelPath: n.cfg.Model.Path, ModelName: n.modelName(),
 			Port: n.cfg.VLLMPort, CtxLen: n.cfg.Model.CtxLen, GPUs: n.cfg.GPUs,
-			ExtraArgs: n.cfg.VLLMArgs,
-			LogPath:   filepath.Join(n.cfg.DataDir, "vllm.log"),
+			ExtraArgs:      n.cfg.VLLMArgs,
+			LogPath:        filepath.Join(n.cfg.DataDir, "vllm.log"),
+			StartupTimeout: startupTimeout,
 		})
 	default:
 		return fmt.Errorf("unsupported runtime %q (expected llama or vllm)", n.cfg.Runtime)

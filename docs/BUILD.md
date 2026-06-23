@@ -91,6 +91,7 @@ vLLM example:
   "runtime": "vllm",
   "vllm_bin": "vllm",
   "vllm_port": 9204,
+  "vllm_startup_timeout": "45m",
   "vllm_args": [
     "--kv-cache-dtype", "fp8",
     "--reasoning-parser", "glm45",
