@@ -3,7 +3,7 @@
 A working MVP of the [Alien Fleet whitepaper](alien-fleet-whitepaper-v1.0.md):
 a permissionless market for LLM inference with end-to-end encrypted requests,
 voucher payments, and signed receipts. Implemented in Go as **two single
-binaries**, with llama.cpp as the inference backend. Deviations from the
+binaries**, with llama.cpp or vLLM as the inference backend. Deviations from the
 paper are documented in the whitepaper's **Appendix A**.
 
 **Live testnet**: dashboard at **https://fleet.lethe.gg** · gateway
@@ -39,7 +39,7 @@ serving Gemma 4 (12B / 26B-A4B / E4B).
                                  │ gemma4    │  │ 26B-A4B   │  │ E4B      │
                                  │ (12B)     │  │ (split)   │  │          │
                                  └──────────┘  └──────────┘  └──────────┘
-                                   llama.cpp llama-server, CUDA, per-node pinned
+                                   llama.cpp/vLLM, CUDA, per-node pinned
 ```
 
 ## What is implemented
@@ -96,10 +96,11 @@ cmd/fleet-proxy     one binary: local OpenAI-compatible proxy
 internal/wire       envelopes, HPKE, vouchers, receipts, frames (§7)
 internal/ledger     chain-sim: accounts, channels, settlement, burns (§12)
 internal/gateway    registry, capacity, relay, chain API (§8, §11, §14)
-internal/node       Class O node: keys, llama.cpp, receipts (§6.5, §8)
+internal/node       Class O node: keys, backend forwarding, receipts (§6.5, §8)
 internal/proxy      client engine: funding, sealing, verification (§11.1)
 internal/identity   Agent ID DPoP verifier + nullifier (§13)
 internal/llama      llama-server child process manager + GGUF metadata
+internal/vllm       vLLM child process manager
 demo/               testnet launcher, node configs, E2E demo script
 ```
 

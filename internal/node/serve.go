@@ -130,6 +130,9 @@ func (n *Node) handleInfer(w http.ResponseWriter, r *http.Request) {
 		writeNodeErr(w, wire.EPolicy, "bad openai json")
 		return
 	}
+	// Clients request public Fleet aliases; local backends such as vLLM often
+	// validate the served model name exactly.
+	oai["model"] = n.modelName()
 	stream, _ := oai["stream"].(bool)
 	if stream {
 		// usage in the final chunk so the receipt has true token counts
@@ -214,18 +217,18 @@ func (f *flushWriter) Flush() {
 	}
 }
 
-// runStreaming forwards the request to llama-server with SSE streaming and
+// runStreaming forwards the request to the local OpenAI-compatible backend and
 // seals each chunk as a frame. Returns token counts and t_first.
 func (n *Node) runStreaming(oai map[string]any, sealer *wire.StreamSealer, respHash hash.Hash) (inTok, outTok, tFirst uint64, err error) {
 	reqBody, _ := json.Marshal(oai)
-	resp, err := http.Post(n.llama.BaseURL()+"/v1/chat/completions", "application/json", bytes.NewReader(reqBody))
+	resp, err := http.Post(n.runtime.BaseURL()+"/v1/chat/completions", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		return 0, 0, 0, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		b, _ := io.ReadAll(resp.Body)
-		return 0, 0, 0, fmt.Errorf("llama-server %d: %s", resp.StatusCode, string(b))
+		return 0, 0, 0, fmt.Errorf("%s backend %d: %s", n.runtimeTyp, resp.StatusCode, string(b))
 	}
 	sc := bufio.NewScanner(resp.Body)
 	sc.Buffer(make([]byte, 0, 64<<10), 4<<20)
@@ -261,7 +264,7 @@ func (n *Node) runStreaming(oai map[string]any, sealer *wire.StreamSealer, respH
 
 func (n *Node) runBlocking(oai map[string]any, sealer *wire.StreamSealer, respHash hash.Hash) (inTok, outTok, tFirst uint64, err error) {
 	reqBody, _ := json.Marshal(oai)
-	resp, err := http.Post(n.llama.BaseURL()+"/v1/chat/completions", "application/json", bytes.NewReader(reqBody))
+	resp, err := http.Post(n.runtime.BaseURL()+"/v1/chat/completions", "application/json", bytes.NewReader(reqBody))
 	if err != nil {
 		return 0, 0, 0, err
 	}
@@ -271,7 +274,7 @@ func (n *Node) runBlocking(oai map[string]any, sealer *wire.StreamSealer, respHa
 		return 0, 0, 0, err
 	}
 	if resp.StatusCode != 200 {
-		return 0, 0, 0, fmt.Errorf("llama-server %d: %s", resp.StatusCode, string(b))
+		return 0, 0, 0, fmt.Errorf("%s backend %d: %s", n.runtimeTyp, resp.StatusCode, string(b))
 	}
 	var out struct {
 		Usage struct {

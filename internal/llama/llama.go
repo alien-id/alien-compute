@@ -8,15 +8,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
+
+	"alien.org/fleet/internal/childproc"
 )
 
 type Config struct {
@@ -48,11 +51,21 @@ func New(cfg Config) *Server {
 func (s *Server) BaseURL() string { return fmt.Sprintf("http://127.0.0.1:%d", s.cfg.Port) }
 
 // BundleHash returns the SHA-256 of the model artifact (content addressing,
-// AX5). The hash is cached beside the file keyed on size+mtime.
+// AX5). Files are cached beside the artifact keyed on size+mtime. Directories
+// are hashed as a stable manifest plus file contents and cached inside the dir.
+// Non-local identifiers are hashed as symbolic model ids; use local paths when
+// exact artifact identity matters.
 func BundleHash(path string) ([]byte, error) {
 	st, err := os.Stat(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
+	}
+	if os.IsNotExist(err) {
+		h := sha256.Sum256([]byte("model-id:" + path))
+		return h[:], nil
+	}
+	if st.IsDir() {
+		return dirBundleHash(path)
 	}
 	cachePath := path + ".sha256"
 	cacheKey := fmt.Sprintf("%d-%d", st.Size(), st.ModTime().UnixNano())
@@ -78,6 +91,76 @@ func BundleHash(path string) ([]byte, error) {
 	return sum, nil
 }
 
+type dirHashEntry struct {
+	Rel     string
+	Size    int64
+	ModTime int64
+}
+
+func dirBundleHash(root string) ([]byte, error) {
+	var entries []dirHashEntry
+	if err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if filepath.Base(path) == ".fleet_model.sha256" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		entries = append(entries, dirHashEntry{
+			Rel:     filepath.ToSlash(rel),
+			Size:    info.Size(),
+			ModTime: info.ModTime().UnixNano(),
+		})
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Rel < entries[j].Rel })
+	manifest, _ := json.Marshal(entries)
+	manifestHash := sha256.Sum256(manifest)
+	cachePath := filepath.Join(root, ".fleet_model.sha256")
+	if b, err := os.ReadFile(cachePath); err == nil {
+		parts := strings.Fields(string(b))
+		if len(parts) == 2 && parts[1] == hex.EncodeToString(manifestHash[:]) {
+			if h, err := hex.DecodeString(parts[0]); err == nil && len(h) == 32 {
+				return h, nil
+			}
+		}
+	}
+
+	h := sha256.New()
+	h.Write([]byte("dir-model-v1\n"))
+	h.Write(manifest)
+	for _, ent := range entries {
+		h.Write([]byte("\n-- " + ent.Rel + "\n"))
+		f, err := os.Open(filepath.Join(root, filepath.FromSlash(ent.Rel)))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.Copy(h, f); err != nil {
+			_ = f.Close()
+			return nil, err
+		}
+		if err := f.Close(); err != nil {
+			return nil, err
+		}
+	}
+	sum := h.Sum(nil)
+	_ = os.WriteFile(cachePath, []byte(hex.EncodeToString(sum)+" "+hex.EncodeToString(manifestHash[:])), 0o644)
+	return sum, nil
+}
+
 // Start launches llama-server pinned to the configured GPUs and waits for
 // its health endpoint.
 func (s *Server) Start() error {
@@ -99,7 +182,7 @@ func (s *Server) Start() error {
 	cmd.Env = append(os.Environ(),
 		"CUDA_VISIBLE_DEVICES="+s.cfg.GPUs,
 		"LD_LIBRARY_PATH="+binDir+":"+os.Getenv("LD_LIBRARY_PATH"))
-	cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGKILL} // die with the node
+	cmd.SysProcAttr = childproc.SysProcAttr() // die with the node on Linux
 	if s.cfg.LogPath != "" {
 		lf, err := os.Create(s.cfg.LogPath)
 		if err != nil {

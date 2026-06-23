@@ -1,5 +1,5 @@
 // Package node implements the Fleet Class O serving node (whitepaper §8):
-// permissionless join, NIK/NEK keys, llama.cpp inference backend, HPKE
+// permissionless join, NIK/NEK keys, local inference backend, HPKE
 // request handling, receipt signing, voucher-gated payment.
 package node
 
@@ -22,11 +22,13 @@ import (
 	"alien.org/fleet/internal/gateway"
 	"alien.org/fleet/internal/ledger"
 	"alien.org/fleet/internal/llama"
+	"alien.org/fleet/internal/vllm"
 	"alien.org/fleet/internal/wire"
 )
 
 type ModelConfig struct {
 	Path       string   `json:"path"`
+	Name       string   `json:"name"`
 	Aliases    []string `json:"aliases"`
 	CtxLen     int      `json:"ctx_len"`
 	TipInKTok  uint64   `json:"tip_in_ktok"`  // nano-FLEET per kTok input
@@ -39,8 +41,13 @@ type Config struct {
 	Listen     string      `json:"listen"`      // node ingress, relayed by the gateway
 	PublicAddr string      `json:"public_addr"` // how the gateway reaches us (default http://<listen>)
 	DataDir    string      `json:"data_dir"`
+	Runtime    string      `json:"runtime"` // "llama" (default) or "vllm"
 	LlamaBin   string      `json:"llama_bin"`
 	LlamaPort  int         `json:"llama_port"`
+	LlamaArgs  []string    `json:"llama_args"`
+	VLLMBin    string      `json:"vllm_bin"`
+	VLLMPort   int         `json:"vllm_port"`
+	VLLMArgs   []string    `json:"vllm_args"`
 	GPUs       string      `json:"gpus"` // CUDA_VISIBLE_DEVICES pinning
 	Profile    string      `json:"profile"`
 	NParallel  int         `json:"n_parallel"`
@@ -66,6 +73,14 @@ func LoadConfig(path string) (*Config, error) {
 	return &c, nil
 }
 
+type inferenceServer interface {
+	Start() error
+	Stop()
+	BaseURL() string
+	Pid() int
+	FetchMeta() (*llama.Meta, error)
+}
+
 type chanCacheEntry struct {
 	ch *ledger.Channel
 	at time.Time
@@ -81,7 +96,8 @@ type Node struct {
 	nek     *wire.NEK
 	prevNEK *wire.NEK
 
-	llama      *llama.Server
+	runtime    inferenceServer
+	runtimeTyp string
 	bundleHash []byte
 	modelMeta  gateway.ModelMeta
 	params     ledger.Params
@@ -205,6 +221,24 @@ func (n *Node) loadNIK() error {
 	return nil
 }
 
+func (n *Node) runtimeType() string {
+	if n.cfg.Runtime == "" {
+		return "llama"
+	}
+	return strings.ToLower(n.cfg.Runtime)
+}
+
+func (n *Node) modelName() string {
+	if n.cfg.Model.Name != "" {
+		return n.cfg.Model.Name
+	}
+	if len(n.cfg.Model.Aliases) > 0 {
+		return n.cfg.Model.Aliases[0]
+	}
+	base := filepath.Base(n.cfg.Model.Path)
+	return strings.TrimSuffix(base, filepath.Ext(base))
+}
+
 func (n *Node) rotateNEK() error {
 	nek, err := wire.GenerateNEK()
 	if err != nil {
@@ -285,7 +319,7 @@ func (n *Node) register() error {
 		Slots:   n.cfg.NParallel,
 		Models: []gateway.ModelOffer{{
 			BundleHash: hex.EncodeToString(n.bundleHash),
-			Name:       strings.TrimSuffix(filepath.Base(n.cfg.Model.Path), ".gguf"),
+			Name:       n.modelName(),
 			Aliases:    n.cfg.Model.Aliases,
 			CtxLen:     n.cfg.Model.CtxLen,
 			Meta:       n.modelMeta,
@@ -398,20 +432,34 @@ func (n *Node) Run() error {
 	if n.cfg.NParallel == 0 {
 		n.cfg.NParallel = 2
 	}
-	n.llama = llama.New(llama.Config{
-		Bin: n.cfg.LlamaBin, ModelPath: n.cfg.Model.Path, Port: n.cfg.LlamaPort,
-		CtxLen: n.cfg.Model.CtxLen, GPUs: n.cfg.GPUs, NParallel: n.cfg.NParallel,
-		LogPath: filepath.Join(n.cfg.DataDir, "llama-server.log"),
-	})
-	log.Printf("[%s] starting llama-server (CUDA_VISIBLE_DEVICES=%s) …", n.cfg.Name, n.cfg.GPUs)
-	if err := n.llama.Start(); err != nil {
+	n.runtimeTyp = n.runtimeType()
+	switch n.runtimeTyp {
+	case "llama":
+		n.runtime = llama.New(llama.Config{
+			Bin: n.cfg.LlamaBin, ModelPath: n.cfg.Model.Path, Port: n.cfg.LlamaPort,
+			CtxLen: n.cfg.Model.CtxLen, GPUs: n.cfg.GPUs, NParallel: n.cfg.NParallel,
+			ExtraArgs: n.cfg.LlamaArgs,
+			LogPath:   filepath.Join(n.cfg.DataDir, "llama-server.log"),
+		})
+	case "vllm":
+		n.runtime = vllm.New(vllm.Config{
+			Bin: n.cfg.VLLMBin, ModelPath: n.cfg.Model.Path, ModelName: n.modelName(),
+			Port: n.cfg.VLLMPort, CtxLen: n.cfg.Model.CtxLen, GPUs: n.cfg.GPUs,
+			ExtraArgs: n.cfg.VLLMArgs,
+			LogPath:   filepath.Join(n.cfg.DataDir, "vllm.log"),
+		})
+	default:
+		return fmt.Errorf("unsupported runtime %q (expected llama or vllm)", n.cfg.Runtime)
+	}
+	log.Printf("[%s] starting %s backend (CUDA_VISIBLE_DEVICES=%s) …", n.cfg.Name, n.runtimeTyp, n.cfg.GPUs)
+	if err := n.runtime.Start(); err != nil {
 		return err
 	}
-	defer n.llama.Stop()
-	log.Printf("[%s] llama-server ready (pid %d) on %s", n.cfg.Name, n.llama.Pid(), n.llama.BaseURL())
+	defer n.runtime.Stop()
+	log.Printf("[%s] %s backend ready (pid %d) on %s", n.cfg.Name, n.runtimeTyp, n.runtime.Pid(), n.runtime.BaseURL())
 
 	// Exact-artifact metadata for the on-chain ModelRegistry (AX5).
-	if meta, err := n.llama.FetchMeta(); err == nil {
+	if meta, err := n.runtime.FetchMeta(); err == nil {
 		n.modelMeta = gateway.ModelMeta{
 			NParams: meta.NParams, SizeBytes: meta.SizeBytes,
 			NCtxTrain: meta.NCtxTrain, NEmbd: meta.NEmbd,

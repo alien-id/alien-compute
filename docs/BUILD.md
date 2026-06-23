@@ -5,7 +5,7 @@
 | What | Version used | Notes |
 |---|---|---|
 | Go | ≥ 1.22 (tested 1.25) | pure-Go daemons, no CGO |
-| CUDA toolkit | 12.x / 13.x | for the llama.cpp backend (providers only) |
+| CUDA toolkit | 12.x / 13.x | for local GPU backends (providers only) |
 | gcc | a CUDA-compatible host compiler (e.g. `gcc-14`) | providers only |
 | cmake, git, curl | any recent | |
 | NVIDIA driver | matching the toolkit | `nvidia-smi` must work |
@@ -26,7 +26,7 @@ make test vet       # unit tests (wire protocol) + lint
 ```
 fleetd chain    — Phase-0 testnet chain-sim (registry, PaymentHub, faucet, settlement)
 fleetd gateway  — stateless PoP: ciphertext relay, chain API forwarding, peer gossip, dashboard
-fleetd node     — Class O compute provider (llama.cpp backend, GPU-pinned)
+fleetd node     — Class O compute provider (llama.cpp or vLLM backend, GPU-pinned)
 ```
 
 `fleet-proxy` is the client: a local OpenAI-compatible proxy holding the
@@ -44,6 +44,12 @@ Any GGUF works — drop it in `models/` and point a node config at it. The
 bundle hash (SHA-256 of the artifact) is computed automatically and is the
 model's on-chain identity; aliases are bound first-come (TOFU, AX5).
 
+Providers can also use a vLLM OpenAI-compatible backend by installing `vllm`
+on the node image and setting `"runtime": "vllm"` in the node config. For
+local model directories the bundle hash is computed over the directory
+contents. For remote model IDs such as `zai-org/GLM-5.2-FP8`, Fleet hashes the
+symbolic ID; prefer a local snapshot path when you need exact artifact identity.
+
 ## 3. Node configuration
 
 One JSON file per provider (see `demo/node-a.json`):
@@ -55,8 +61,10 @@ One JSON file per provider (see `demo/node-a.json`):
   "listen": "127.0.0.1:9101",           // node ingress (gateway relays to this)
   "public_addr": "http://127.0.0.1:9101", // how gateways reach us (tunnel endpoint when NAT'd)
   "data_dir": "demo/run/node-a",        // NIK seed (node identity) lives here
+  "runtime": "llama",                    // default; use "vllm" for vLLM
   "llama_bin": "third_party/llama.cpp/build/bin/llama-server",
   "llama_port": 9201,
+  "llama_args": ["--jinja"],             // optional llama-server flags
   "gpus": "0",                          // CUDA_VISIBLE_DEVICES pinning; "1,2" = 2-GPU layer split
   "profile": "cuda-consumer",           // §5.2 hardware profile
   "n_parallel": 2,                      // concurrent slots
@@ -67,6 +75,38 @@ One JSON file per provider (see `demo/node-a.json`):
     "ctx_len": 16384,
     "tip_in_ktok": 1000000,             // provider tip, nano-FLEET per kTok in
     "tip_out_ktok": 5000000             //                                  out
+  }
+}
+```
+
+vLLM example:
+
+```jsonc
+{
+  "name": "glm52-vllm",
+  "gateway": "http://127.0.0.1:9000",
+  "listen": "127.0.0.1:9104",
+  "public_addr": "http://127.0.0.1:9104",
+  "data_dir": "demo/run/glm52-vllm",
+  "runtime": "vllm",
+  "vllm_bin": "vllm",
+  "vllm_port": 9204,
+  "vllm_args": [
+    "--kv-cache-dtype", "fp8",
+    "--reasoning-parser", "glm45",
+    "--tool-call-parser", "glm47",
+    "--enable-auto-tool-choice"
+  ],
+  "gpus": "0,1,2,3",
+  "profile": "cuda-consumer",
+  "n_parallel": 2,
+  "model": {
+    "path": "zai-org/GLM-5.2-FP8",
+    "name": "GLM-5.2-FP8",
+    "aliases": ["glm-5.2", "glm5.2"],
+    "ctx_len": 1048576,
+    "tip_in_ktok": 2000000,
+    "tip_out_ktok": 10000000
   }
 }
 ```

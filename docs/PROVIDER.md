@@ -17,6 +17,8 @@ The live testnet control plane:
 - A 64-bit Linux machine with an NVIDIA GPU (≥ 8 GB VRAM; `cuda-consumer`
   profile, §5.2) — or several GPUs, one node process per model.
 - CUDA toolkit + driver, Go ≥ 1.22, cmake (see [BUILD.md](BUILD.md)).
+  vLLM providers need a Python environment with `vllm` installed instead of
+  the llama.cpp build.
 - Outbound internet. Inbound reachability is needed for the relay path —
   see step 3 for the NAT options.
 
@@ -40,8 +42,10 @@ make models                   # or drop your own GGUF into models/
   "listen": "0.0.0.0:9101",
   "public_addr": "http://<YOUR-REACHABLE-ADDR>:9101",   // see step 3
   "data_dir": "node-data",                // your NIK (identity + earnings key) persists here
+  "runtime": "llama",
   "llama_bin": "third_party/llama.cpp/build/bin/llama-server",
   "llama_port": 9201,
+  "llama_args": ["--jinja"],              // optional llama-server flags
   "gpus": "0",                            // CUDA_VISIBLE_DEVICES; "0,1" = 2-GPU layer split
   "profile": "cuda-consumer",
   "n_parallel": 2,
@@ -62,6 +66,12 @@ Notes:
   bundle already registered — alias↔hash binding is first-come, AX5) or
   bring a brand-new model with new aliases. Scarce models earn you all the
   traffic for them.
+- **Backend choice is yours.** Omit `"runtime"` or set `"runtime": "llama"`
+  for llama.cpp. Set `"runtime": "vllm"` with `vllm_bin`, `vllm_port`, and
+  optional `vllm_args` for native vLLM models and GLM tool/reasoning parsers.
+  For model directories Fleet hashes the directory contents; for HF repo IDs it
+  hashes the symbolic ID, so a local snapshot path gives stronger artifact
+  identity.
 - **Pricing is yours.** The tip is what you earn per kTok; the burned base
   fee is network-wide. Routing weighs score²/price, so overpricing costs
   you traffic.
@@ -91,7 +101,7 @@ production example of a persistent SSH tunnel keeper).
 
 What happens (all automatic):
 
-1. llama-server starts pinned to your GPUs; the model artifact is hashed
+1. The configured backend starts pinned to your GPUs; the model artifact is hashed
    (its on-chain identity) and metadata extracted.
 2. The node **registers permissionlessly** with the chain via any gateway
    and discovers the other gateways via peer exchange.
@@ -129,7 +139,7 @@ curl http://127.0.0.1:8080/fleet/status     # the receipt your node signed
   never slashed (§10): you only stop earning while away.
 - **Multiple GPUs**: one node per model is the simple path (`gpus` pins
   each); a single node can also split one big model across GPUs
-  (`"gpus": "0,1"` → llama.cpp layer split).
+  (`"gpus": "0,1"` → llama.cpp layer split or vLLM tensor parallel).
 - **Privacy**: you serve Class O — you *can* see the plaintext of requests
   routed to you, and clients know that (§3.2). Don't log it; the testnet
   corpus is synthetic anyway.

@@ -1,7 +1,7 @@
 // fleetd is the Alien Fleet daemon — one binary, multiple roles (AX1):
 //
 //	fleetd gateway  — regional PoP + Phase-0 testnet chain-sim
-//	fleetd node     — Class O serving node (llama.cpp backend, GPU-pinned)
+//	fleetd node     — Class O serving node (OpenAI-compatible backend, GPU-pinned)
 package main
 
 import (
