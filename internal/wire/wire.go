@@ -30,7 +30,7 @@ const (
 // InputBuckets are payload size buckets in BYTES (MVP deviation: the
 // whitepaper buckets by kilotokens; the client cannot count tokens without
 // the model tokenizer, so the MVP buckets the padded ciphertext by size).
-var InputBuckets = []int{4 << 10, 16 << 10, 64 << 10, 256 << 10, 1 << 20}
+var InputBuckets = []int{4 << 10, 16 << 10, 64 << 10, 256 << 10, 1 << 20, 4 << 20}
 
 // Amounts are in nano-FLEET (1 FLEET = 1e9 nanoFLEET). MVP deviation: the
 // whitepaper denominates in atto-FLEET (1e18) which overflows uint64 for
