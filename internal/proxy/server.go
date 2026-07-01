@@ -141,29 +141,36 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 
 	openaiJSON, _ := json.Marshal(oai)
 	maxForRequest := s.estimateMax(oai, openaiJSON, tip)
-	voucher, err := s.E.reserve(maxForRequest)
-	if err != nil {
-		writeOpenAIErr(w, 402, "insufficient_quota", err.Error())
-		return
-	}
-
-	env, respKey, err := s.seal(node, bundle, openaiJSON, voucher, maxForRequest)
-	if err != nil {
-		writeOpenAIErr(w, 500, "api_error", "seal: "+err.Error())
-		return
-	}
-	envBytes := wire.MustMarshal(env)
-	reqCommit := sha256.Sum256(envBytes)
 
 	// Relay through the best gateway; fail over to the next on connection
-	// errors (any gateway can relay — they are interchangeable PoPs).
+	// errors (any gateway can relay — they are interchangeable PoPs). Each
+	// attempt reserves a FRESH voucher (new nonce) and re-seals, so a failover
+	// after the first PoP already delivered to the node cannot trip the node's
+	// exact-nonce guard (E_VOUCHER "voucher nonce replayed"). This is safe for
+	// billing: CumAmount is cumulative and KnownSpent only advances on a
+	// verified receipt, so an orphaned attempt does not double-charge.
 	var resp *http.Response
 	var relayErr error
+	var voucher *wire.Voucher
+	var respKey []byte
+	var reqCommit [32]byte
 	for _, base := range s.E.gwBases() {
+		v, err := s.E.reserve(maxForRequest)
+		if err != nil {
+			writeOpenAIErr(w, 402, "insufficient_quota", err.Error())
+			return
+		}
+		env, rk, err := s.seal(node, bundle, openaiJSON, v, maxForRequest)
+		if err != nil {
+			writeOpenAIErr(w, 500, "api_error", "seal: "+err.Error())
+			return
+		}
+		envBytes := wire.MustMarshal(env)
 		relayReq, _ := http.NewRequestWithContext(r.Context(), "POST", base+"/v1/relay", bytes.NewReader(envBytes))
 		relayReq.Header.Set("Content-Type", "application/cbor")
 		resp, relayErr = s.E.hc.Do(relayReq)
 		if relayErr == nil {
+			voucher, respKey, reqCommit = v, rk, sha256.Sum256(envBytes)
 			break
 		}
 	}
