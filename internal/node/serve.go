@@ -133,6 +133,12 @@ func (n *Node) handleInfer(w http.ResponseWriter, r *http.Request) {
 	// Clients request public Fleet aliases; local backends such as vLLM often
 	// validate the served model name exactly.
 	oai["model"] = n.modelName()
+	// Sampling floor: GLM-5.2 + the refusal-subspace ablation degenerates into a
+	// repetition loop under greedy decoding — worst on the strongly-ablated
+	// (harmful) prompts, where argmax falls into a repeat attractor. GLM-5.2 is a
+	// reasoning model meant to be sampled, so coerce greedy/near-greedy requests to
+	// GLM's recommended sampling before forwarding to the backend.
+	applySamplingFloor(oai)
 	stream, _ := oai["stream"].(bool)
 	if stream {
 		// usage in the final chunk so the receipt has true token counts
@@ -215,6 +221,42 @@ func (f *flushWriter) Flush() {
 	if fl, ok := f.w.(http.Flusher); ok {
 		fl.Flush()
 	}
+}
+
+// applySamplingFloor coerces greedy/near-greedy requests to GLM-5.2's recommended
+// sampling (temp 1.0 / top_p 0.95 / top_k 40 / min_p 0.01, softened to temp 0.7 for
+// focus). GLM-5.2 + the refusal-subspace ablation loops under argmax decoding; the
+// model is designed to be sampled. Fires only when temperature is absent or ~0, and
+// only fills sampling knobs the caller left unset (a real sampling request is honored).
+func applySamplingFloor(oai map[string]any) {
+	if t, ok := asFloat(oai["temperature"]); ok && t > 0.05 {
+		return // caller is already sampling — respect their settings
+	}
+	oai["temperature"] = 0.7
+	if _, set := oai["top_p"]; !set {
+		oai["top_p"] = 0.95
+	}
+	if _, set := oai["top_k"]; !set {
+		oai["top_k"] = 40
+	}
+	if _, set := oai["min_p"]; !set {
+		oai["min_p"] = 0.01
+	}
+}
+
+func asFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case float32:
+		return float64(x), true
+	case int:
+		return float64(x), true
+	case json.Number:
+		f, err := x.Float64()
+		return f, err == nil
+	}
+	return 0, false
 }
 
 // runStreaming forwards the request to the local OpenAI-compatible backend and
