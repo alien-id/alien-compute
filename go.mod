@@ -1,6 +1,6 @@
 module alien.org/fleet
 
-go 1.26.10
+go 1.27.3
 
 require (
 	github.com/cloudflare/circl v1.6.3
